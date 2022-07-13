@@ -1,0 +1,30 @@
+---
+- hosts: web
+  become: yes
+  vars:
+    usuario: andersonluiz
+
+    tasks:
+
+    - name: remove usuario do sudoers
+      lineinfile:
+        dest: /etc/sudoers
+        state: absent
+        line: '{{ usuario }} ALL=(ALL) NOPASSWD: ALL'
+
+    - name: backup /etc/os-release
+      copy:
+        src: /etc/os-release_bkp
+        dest: /etc/os-release
+        remote_src: yes
+      when: ansible_os_family == "Debian"
+   
+    - name: backup /etc/resolv.conf
+      copy:
+        src: /etc/resolv.conf_bkp
+        dest: /etc/resolv.conf
+        remote_src: yes
+
+    - name: update-grub
+      shell: update-initramfs -utk all
+      chdir: /boot

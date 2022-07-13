@@ -1,0 +1,83 @@
+---
+- hosts: web
+  become: yes
+  vars:
+    usuario: andersonluiz
+  tasks:
+
+    - name: verifica qual interface esta down
+      shell: "ip a | grep DOWN | cut -d' ' -f2 | cut -d: -f1"
+      register: interface_output
+
+    - name: muda a interface para up
+      shell: ip link set dev {{ interface_output.stdout }} up
+      when:  interface_output.stdout  | length != 0
+
+    - name: verifica se a interface tem ip
+      shell: "ip -br a | grep {{ interface_output.stdout }} | cut -b 33-49"
+      when:  interface_output.stdout  | length != 0
+      register: ip_output
+   
+    - name: acrescenta o ip a interface
+      shell: ip addr add 192.168.10.31/24 dev {{ interface_output.stdout }}
+      when: 
+       - ip_output.changed == true
+       - ip_output.stdout == ""
+
+    - name: mounta a particao tmp
+      #ansible.posix.mount:
+      mount:
+        path: /tmp
+        state: remounted
+        opts: suid,exec
+
+    - name: Usuario sudo sem senha
+      lineinfile:
+        dest: /etc/sudoers
+        state: present
+        line: '{{ usuario }} ALL=(ALL) NOPASSWD: ALL'
+    
+    - name: libera 192.168.10.0/24 no firewall
+      ansible.builtin.iptables:
+        chain: INPUT
+        #source: 192.168.10.0/24
+        source: 150.165.250.13
+        protocol: tcp
+        destination_port: 22
+        ctstate: NEW
+        jump: ACCEPT
+        comment: ssh para migracao.
+        action: insert
+        rule_num: 2
+
+    - name: Dropa as conexoes
+      ansible.builtin.iptables:
+        chain: INPUT
+        jump: DROP
+        comment: Dropa tudo
+        action: insert
+        rule_num: 3
+
+    - name: Pause for 45 seconds to close connections 
+      ansible.builtin.pause:
+        seconds: 45
+
+    - name: backup /etc/os-release
+      copy:
+        src: /etc/os-release
+        dest: /etc/os-release_bkp
+        remote_src: yes
+      when: ansible_os_family == "Debian"
+
+    - name: copia /etc/os-release para a vm.
+      copy:
+        src: files/os-release
+        dest: /etc/os-release
+        remote_src: no
+      when: ansible_os_family == "Debian"
+   
+    - name: backup /etc/resolv.conf
+      copy:
+        src: /etc/resolv.conf
+        dest: /etc/resolv.conf_bkp
+        remote_src: yes
